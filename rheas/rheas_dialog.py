@@ -29,7 +29,7 @@ from PyQt5 import uic
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSlot
 
-from qgis.core import QgsRasterLayer, QgsProject, QgsContrastEnhancement
+from qgis.core import QgsRasterLayer, QgsProject, QgsContrastEnhancement, QgsLayerTreeLayer
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'rheas_dialog_base.ui'))
@@ -75,11 +75,22 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
         """Load rasters when button is clicked."""
         schema = self.schema.itemText(self.schema.currentIndex())
         table = self.table.itemText(self.table.currentIndex())
-        connString = "PG: dbname=rheas host=localhost user=rheas password=docker port=5432 mode=2 schema={0} column=rast table={1}".format(schema, table)
-        layer = QgsRasterLayer(connString, "{0}.{1}".format(schema, table))
-        if layer.isValid():
-            layer.setContrastEnhancement(QgsContrastEnhancement.StretchToMinimumMaximum)
-        QgsProject.instance().addMapLayer(layer)
+        startdate = self.startdate.date()
+        enddate = self.enddate.date()
+        dates = [startdate]
+        while dates[-1] < enddate:
+            dates.append(dates[-1].addDays(1))
+        for dt in dates:
+            connString = "PG: dbname=rheas host=localhost user=rheas password=docker port=5432 mode=2 schema={0} column=rast table={1} where='fdate=date\\'{2}\\''".format(schema, table, dt.toString("yyyy-M-d"))
+            layer = QgsRasterLayer(connString, "{0}".format(dt.toString("yyyy-M-d")))
+            if layer.isValid():
+                layer.setContrastEnhancement(QgsContrastEnhancement.StretchToMinimumMaximum)
+            root = QgsProject.instance().layerTreeRoot()
+            group = root.findGroup(schema)
+            if group is None:
+                group = root.addGroup(schema)
+            QgsProject.instance().addMapLayer(layer, False)
+            group.insertChildNode(0, QgsLayerTreeLayer(layer))
 
     def addTables(self):
         """Add available tables contained in selected schema."""
