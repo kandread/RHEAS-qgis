@@ -29,6 +29,8 @@ from PyQt5 import uic
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSlot
 
+from qgis.core import QgsRasterLayer, QgsProject, QgsContrastEnhancement
+
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'rheas_dialog_base.ui'))
 
@@ -44,6 +46,7 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
         self.schema.currentIndexChanged.connect(self.refreshTables)
+        self.render.clicked.connect(self.loadRaster)
         self.addSchemas()
         self.addTables()
 
@@ -66,6 +69,17 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
         """Refresh list of tables when selected schema changes."""
         self.table.clear()
         self.addTables()
+
+    @pyqtSlot()
+    def loadRaster(self):
+        """Load rasters when button is clicked."""
+        schema = self.schema.itemText(self.schema.currentIndex())
+        table = self.table.itemText(self.table.currentIndex())
+        connString = "PG: dbname=rheas host=localhost user=rheas password=docker port=5432 mode=2 schema={0} column=rast table={1}".format(schema, table)
+        layer = QgsRasterLayer(connString, "{0}.{1}".format(schema, table))
+        if layer.isValid():
+            layer.setContrastEnhancement(QgsContrastEnhancement.StretchToMinimumMaximum)
+        QgsProject.instance().addMapLayer(layer)
 
     def addTables(self):
         """Add available tables contained in selected schema."""
