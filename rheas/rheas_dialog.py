@@ -27,6 +27,7 @@ import psycopg2 as pg
 
 from PyQt5 import uic
 from PyQt5 import QtWidgets
+from PyQt5.QtCore import QSettings
 from PyQt5.QtCore import pyqtSlot
 
 from qgis.core import QgsRasterLayer, QgsProject, QgsContrastEnhancement, QgsLayerTreeLayer
@@ -46,13 +47,37 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
         self.schema.currentIndexChanged.connect(self.refreshTables)
+        self.database.currentIndexChanged.connect(self.refreshSchemas)
         self.render.clicked.connect(self.loadRaster)
+        self.addDatabases()
         self.addSchemas()
         self.addTables()
 
+    def addDatabases(self):
+        """Add available database connections."""
+        self.settings = QSettings()
+        self.settings.beginGroup('/PostgreSQL/connections/')
+        connections = self.settings.childGroups()
+        self.settings.endGroup()
+        for conn in connections:
+            self.database.addItem(conn)
+            
+    def getConnectionParameters(self):
+        """Get database connection information."""
+        conn = self.database.itemText(self.database.currentIndex())
+        self.settings.beginGroup('PostgreSQL/connections')
+        dbname = self.settings.value("{0}/database".format(conn))
+        host = self.settings.value("{0}/host".format(conn))
+        port = self.settings.value("{0}/port".format(conn))
+        username = self.settings.value("{0}/username".format(conn))
+        password = self.settings.value("{0}/password".format(conn))
+        self.settings.endGroup()
+        return dbname, host, port, username, password
+
     def addSchemas(self):
         """Add available schemas from database."""
-        db = pg.connect(dbname="rheas", host="localhost", port=5432, user="rheas", password="docker")
+        dbname, host, port, username, password = self.getConnectionParameters()
+        db = pg.connect(dbname=dbname, host=host, port=port, user=username, password=password)
         cur = db.cursor()
         sql = "select schema_name from information_schema.schemata"
         cur.execute(sql)
@@ -65,6 +90,12 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
         db.close()
 
     @pyqtSlot()
+    def refreshSchemas(self):
+        """Refresh list of schemas when database changes."""
+        self.schema.clear()
+        self.addSchemas()
+        
+    @pyqtSlot()
     def refreshTables(self):
         """Refresh list of tables when selected schema changes."""
         self.table.clear()
@@ -73,6 +104,7 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
     @pyqtSlot()
     def loadRaster(self):
         """Load rasters when button is clicked."""
+        dbname, host, port, username, password = self.getConnectionParameters()
         schema = self.schema.itemText(self.schema.currentIndex())
         table = self.table.itemText(self.table.currentIndex())
         startdate = self.startdate.date()
@@ -81,7 +113,7 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
         while dates[-1] < enddate:
             dates.append(dates[-1].addDays(1))
         for dt in dates:
-            connString = "PG: dbname=rheas host=localhost user=rheas password=docker port=5432 mode=2 schema={0} column=rast table={1} where='fdate=date\\'{2}\\''".format(schema, table, dt.toString("yyyy-M-d"))
+            connString = "PG: dbname={3} host={4} user={5} password={6} port={7} mode=2 schema={0} column=rast table={1} where='fdate=date\\'{2}\\''".format(schema, table, dt.toString("yyyy-M-d"), dbname, host, username, password, port)
             layer = QgsRasterLayer(connString, "{0}".format(dt.toString("yyyy-M-d")))
             if layer.isValid():
                 layer.setContrastEnhancement(QgsContrastEnhancement.StretchToMinimumMaximum)
@@ -94,7 +126,8 @@ class rheasDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def addTables(self):
         """Add available tables contained in selected schema."""
-        db = pg.connect(dbname="rheas", host="localhost", port=5432, user="rheas", password="docker")
+        dbname, host, port, username, password = self.getConnectionParameters()
+        db = pg.connect(dbname=dbname, host=host, port=port, user=username, password=password)
         cur = db.cursor()
         idx = self.schema.currentIndex()
         schema = self.schema.itemText(idx)
